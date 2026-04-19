@@ -17,10 +17,13 @@ def convert_pdf_to_markdown(pdf_path):
 
         result = ocr.ocr(img_data, cls=True)
 
-        if result and result[0]:
-            for line in result[0]:
-                text = line[1][0]
-                md_content.append(text)
+        if result and result is not None:
+            for line_result in result:
+                if line_result:
+                    for line in line_result:
+                        if line and len(line) >= 2:
+                            text = line[1][0] if isinstance(line[1], (list, tuple)) else line[1]
+                            md_content.append(text)
 
         md_content.append("")
 

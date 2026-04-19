@@ -1,12 +1,16 @@
 import sys
 import os
-from fastapi import FastAPI, UploadFile, File
+import uuid
+import tempfile
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse
 import fitz
 from paddleocr import PaddleOCR
 
 
 app = FastAPI()
+
+MAX_FILE_SIZE = 50 * 1024 * 1024
 
 ocr = PaddleOCR(use_angle_cls=True, lang='ch', use_gpu=False)
 
@@ -22,10 +26,13 @@ def convert_pdf_to_markdown(pdf_path):
 
         result = ocr.ocr(img_data, cls=True)
 
-        if result and result[0]:
-            for line in result[0]:
-                text = line[1][0]
-                md_content.append(text)
+        if result and result is not None:
+            for line_result in result:
+                if line_result:
+                    for line in line_result:
+                        if line and len(line) >= 2:
+                            text = line[1][0] if isinstance(line[1], (list, tuple)) else line[1]
+                            md_content.append(text)
 
         md_content.append("")
 
@@ -40,15 +47,22 @@ async def home():
 
 @app.post("/convert")
 async def convert_pdf(file: UploadFile = File(...)):
-    temp_pdf = "temp_upload.pdf"
-    with open(temp_pdf, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    content = await file.read()
 
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="文件大小超过限制（最大 50MB）")
+
+    temp_pdf = None
     try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as f:
+            f.write(content)
+            temp_pdf = f.name
+
         markdown_content = convert_pdf_to_markdown(temp_pdf)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"转换失败: {str(e)}")
     finally:
-        if os.path.exists(temp_pdf):
+        if temp_pdf and os.path.exists(temp_pdf):
             os.remove(temp_pdf)
 
     return {"markdown": markdown_content}
